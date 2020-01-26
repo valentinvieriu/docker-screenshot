@@ -64,6 +64,10 @@ And lastly, of course the HTTP port can be customized:
 
 * `SCREENIE_PORT`: HTTP port (default `3000`).
 
+## Inspiration
+
+- [https://github.com/Zenika/alpine-chrome](https://github.com/Zenika/alpine-chrome)
+
 ## Contributing
 
 We are open to contributions or suggestions. File issues or suggestions on the

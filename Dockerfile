@@ -1,29 +1,44 @@
-FROM node:12-alpine3.11
+FROM alpine:edge
 
-ENV SCREENIE_VERSION=3.0.0-beta.2
-ENV SCREENIE_CHROMIUM_ARGS=--no-sandbox
-ENV SCREENIE_CHROMIUM_EXEC=/usr/lib/chromium/chrome
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+# Installs latest Chromium (77) package.
+RUN apk add --no-cache \
+      chromium \
+      nss \
+      ca-certificates \
+      harfbuzz \
+      freetype \
+      freetype-dev \
+      ttf-freefont \
+      nodejs \
+      yarn \
+      && rm -rf /var/cache/* \
+      && mkdir /var/cache/apk
 
-RUN mkdir -p /usr/src/app
-WORKDIR /usr/src/app
 
-# Installs latest Chromium (77) package
-RUN apk update && apk upgrade && \
-  apk add --no-cache \
-  chromium\
-  nss\
-  freetype\
-  harfbuzz\
-  ttf-freefont\
-  git&& \
-  wget -O /usr/local/bin/dumb-init https://github.com/Yelp/dumb-init/releases/download/v1.2.2/dumb-init_1.2.2_amd64 && \
-  chmod +x /usr/local/bin/dumb-init
+# Tell Puppeteer to skip installing Chrome. We'll be using the installed package.
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD true
 
-ENTRYPOINT ["dumb-init"]
+# Add user so we don't need --no-sandbox.
+RUN addgroup -S pptruser && adduser -S -g pptruser pptruser \
+    && mkdir -p /home/pptruser/Downloads /app \
+    && chown -R pptruser:pptruser /home/pptruser \
+    && chown -R pptruser:pptruser /app
 
-RUN npm install -g screenie-server@${SCREENIE_VERSION} --unsafe-perm
+WORKDIR /app
+# Run everything after as non-privileged user.
+USER pptruser
+
+ENV CHROME_BIN=/usr/bin/chromium-browser \
+    CHROME_PATH=/usr/lib/chromium/ \
+    SCREENIE_CHROMIUM_EXEC=/usr/lib/chromium/chrome
+
+COPY package.json yarn.lock /app/
+RUN yarn install && \
+    yarn cache clean && \
+    rm -rf /tmp/*
+
+COPY src /app
 
 EXPOSE 3000
 
-CMD /usr/local/bin/screenie
+CMD ["node","server.js"]
