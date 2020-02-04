@@ -2,6 +2,7 @@
 
 const Koa = require('koa');
 const winston = require('winston');
+const sharp = require('sharp');
 const createPuppeteerPool = require('puppeteer-pool').default;
 const { combine, timestamp, printf } = winston.format;
 
@@ -27,12 +28,13 @@ const chromiumExec = process.env.SCREENIE_CHROMIUM_EXEC
   ? { executablePath: process.env.SCREENIE_CHROMIUM_EXEC }
   : {};
 const defaultFormat = process.env.SCREENIE_DEFAULT_FORMAT || 'jpeg';
+const defaultQuality = process.env.SCREENIE_DEFAULT_QUALITY || 80;
 const imageSize = {
   width: process.env.SCREENIE_WIDTH || 1024,
   height: process.env.SCREENIE_HEIGHT || 768,
 };
-const serverPort = process.env.SCREENIE_PORT || 3000;
-const supportedFormats = ['jpg', 'jpeg', 'pdf', 'png'];
+const serverPort = process.env.PORT || 3000;
+const supportedFormats = ['jpg', 'jpeg', 'pdf', 'png', 'webp'];
 const allowFileScheme = process.env.SCREENIE_ALLOW_FILE_SCHEME || false;
 
 const app = new Koa();
@@ -177,9 +179,14 @@ app.use(async (ctx, next) => {
  * If successful the screenshot is sent as the response.
  */
 app.use(async (ctx, next) => {
-  const { url, fullPage } = ctx.request.query;
+  const query = ctx.request.query;
+  const { url, fullPage, resize } = query;
   const { format, page } = ctx.state;
   const { width, height } = page.viewport();
+  let [resizeX, resizeY] = query.resize ? query.resize.split('x') : [null, null];
+  resizeX = Math.min(width, parseInt(resizeX, 10) || width);
+  resizeY = Math.min(height, parseInt(resizeY, 10) || height); 
+  const quality = Math.min(defaultQuality,parseInt(query.quality, 10) || defaultQuality);
   let renderError;
 
   logger.log('info', `Rendering screenshot of ${url} to ${format}`);
@@ -201,13 +208,36 @@ app.use(async (ctx, next) => {
       .screenshot(
         Object.assign(
           {
-            type: format === 'jpg' ? 'jpeg' : format,
+            type: 'png',
             omitBackground: true,
           },
           clipInfo
         )
       )
-      .then(response => (ctx.body = response))
+      .then(response => {
+        let output = response;
+        if (resizeX && resizeY) {
+          output = sharp(response).resize(resizeX, resizeY); 
+        }
+        switch (format) {
+          case 'webp':
+            ctx.body = output.webp({ quality });
+            break;
+          case 'jpeg' || 'jpg':
+            ctx.body = output.jpeg({
+              quality,
+              progressive: true,
+              optimizeScans: true,
+              trellisQuantisation: true,
+              overshootDeringing: true,
+              chromaSubsampling: '4:4:4'
+            });
+            break;        
+          default:
+            ctx.body = output
+            break;
+        }        
+      })
       .catch(error => (renderError = error));
   }
 
